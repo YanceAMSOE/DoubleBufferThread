@@ -106,10 +106,12 @@ int main() {
     pthread_create(&thread_add, NULL, thread2, &thread_data);
     pthread_create(&thread_sqrt, NULL, thread3, &thread_data);
 
+    // join threads and data
     pthread_join(thread_sq, NULL);
     pthread_join(thread_add, NULL);
     pthread_join(thread_sqrt, NULL);
 
+    // destory and unmap shared memory and semaphores
     munmap(shm_addr, SHM_SIZE);
     close(shm_fd);
     shm_unlink(SHM_NAME);
@@ -136,7 +138,7 @@ void* thread1(void* arg) {
         double result = x * x;
 
         // write to buffer
-        if (i % 2 == 0) { // filters out half of the threads
+        if (i % 2 == 0) { //one thread writes to buffer the other reads from buffer
             sem_wait(data->sem_write_mem1_0);
             *shm_addr = result;
             sem_post(data->sem_read_mem1_0);
