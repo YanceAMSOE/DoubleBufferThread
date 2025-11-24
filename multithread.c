@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <pthread.h>
+#include <math.h>
 
 #define SHM_NAME "/my_shm"
 #define SEM_NAME1 "/my_sem1"
@@ -24,15 +25,24 @@
 
 typedef struct {
     int* shm_addr;
-    sem_t* sem_write_a;
-    sem_t* sem_write_b;
-    sem_t* sem_read_a;
-    sem_t* sem_read_b;
-    sem_t* sem_mutex;
+
+    // buffer 1 sempahores
+    sem_t* sem_write_mem1_0;
+    sem_t* sem_write_mem1_1;
+    sem_t* sem_read_mem1_0;
+    sem_t* sem_read_mem1_1;
+
+    // buffer 2 semaphores
+    sem_t* sem_write_mem2_0;
+    sem_t* sem_write_mem2_1;
+    sem_t* sem_read_mem2_0;
+    sem_t* sem_read_mem2_1;
 } thread_data_t;
 
-void* writer_thread(void* arg);
-void* reader_thread(void* arg);
+// thread function declarations
+void* thread1(void* arg);
+void* thread2(void* arg);
+void* thread3(void* arg);
 
 int main() {
     // Initialize double buffer
@@ -40,11 +50,14 @@ int main() {
     int *shm_addr;
 
     // Initialize semaphores
-    sem_t sem_write_a;
-    sem_t sem_write_b;
-    sem_t sem_read_a;
-    sem_t sem_read_b;
-    sem_t sem_mutex;
+    sem_t sem_write_mem1_0;
+    sem_t sem_write_mem1_1;
+    sem_t sem_read_mem1_0;
+    sem_t sem_read_mem1_1;
+    sem_t sem_write_mem2_0;
+    sem_t sem_write_mem2_1;
+    sem_t sem_read_mem2_0;
+    sem_t sem_read_mem2_1;
 
     // Initialize x value for calculations
     int x = 10;
@@ -57,83 +70,155 @@ int main() {
     ftruncate(shm_fd, SHM_SIZE);
     shm_addr = mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 
-    sem_init(&sem_write_a, 0, 1);
-    sem_init(&sem_write_b, 0, 1);
-    sem_init(&sem_read_a, 0, 0);
-    sem_init(&sem_read_b, 0, 0);
-    sem_init(&sem_mutex, 0, 1);
+    // initialize buffer 1 sempahores
+    sem_init(&sem_write_mem1_0, 0, 1);
+    sem_init(&sem_write_mem1_1, 0, 1);
+    sem_init(&sem_read_mem1_0, 0, 0);
+    sem_init(&sem_read_mem1_1, 0, 0);
+
+    // initialize buffer 2 semaphores
+    sem_init(&sem_write_mem2_0, 0, 1);
+    sem_init(&sem_write_mem2_1, 0, 1);
+    sem_init(&sem_read_mem2_0, 0, 0);
+    sem_init(&sem_read_mem2_1, 0, 0);
 
     thread_data_t thread_data = {
         shm_addr,
-        &sem_write_a,
-        &sem_write_b,
-        &sem_read_a,
-        &sem_read_b,
-        &sem_mutex
+        &sem_write_mem1_0,
+        &sem_write_mem1_1,
+        &sem_read_mem1_0,
+        &sem_read_mem1_1,
+        &sem_write_mem2_0,
+        &sem_write_mem2_1,
+        &sem_read_mem2_0,
+        &sem_read_mem2_1,
     };
 
     // Note:
     // Buffer 0: *shm_addr
     // Buffer 1: *(shm_addr + 32 * sizeof(int))
 
-    pthread_t writer;
-    pthread_t reader;
-    pthread_create(&writer, NULL, writer_thread, &thread_data);
-    pthread_create(&reader, NULL, reader_thread, &thread_data);
+    // create 3 threads, one for each calculation
+    pthread_t thread_sq;
+    pthread_t thread_add;
+    pthread_t thread_sqrt;
+    pthread_create(&thread_sq, NULL, thread1, &thread_data);
+    pthread_create(&thread_add, NULL, thread2, &thread_data);
+    pthread_create(&thread_sqrt, NULL, thread3, &thread_data);
 
-    pthread_join(writer, NULL);
-    pthread_join(reader, NULL);
+    pthread_join(thread_sq, NULL);
+    pthread_join(thread_add, NULL);
+    pthread_join(thread_sqrt, NULL);
 
     munmap(shm_addr, SHM_SIZE);
     close(shm_fd);
     shm_unlink(SHM_NAME);
-    sem_destroy(&sem_write_a);
-    sem_destroy(&sem_write_b);
-    sem_destroy(&sem_read_a);
-    sem_destroy(&sem_read_b);
-    sem_destroy(&sem_mutex);
+    sem_destroy(&sem_write_mem1_0);
+    sem_destroy(&sem_write_mem1_1);
+    sem_destroy(&sem_read_mem1_0);
+    sem_destroy(&sem_read_mem1_1);
+    sem_destroy(&sem_write_mem2_0);
+    sem_destroy(&sem_write_mem2_1);
+    sem_destroy(&sem_read_mem2_0);
+    sem_destroy(&sem_read_mem2_1);
 
     // return to exit
     return 0;
 }
 
-void* writer_thread(void* arg) {
+void* thread1(void* arg) {
     thread_data_t* data = (thread_data_t*)arg;
     int* shm_addr = data->shm_addr;
-    int x = 10;
+    double x = 10;
 
     for (int i = 0; i < 10; i++) {
+        // claculate result
+        double result = x * x;
+
+        // write to buffer
         if (i % 2 == 0) { // filters out half of the threads
-            sem_wait(data->sem_write_a);
-            *shm_addr = x + i;
-            sem_post(data->sem_read_a);
-            printf("wrote buffer 0\n");
+            sem_wait(data->sem_write_mem1_0);
+            *shm_addr = result;
+            sem_post(data->sem_read_mem1_0);
         } else {
-            sem_wait(data->sem_write_b);
-            *(shm_addr + 32 * sizeof(int)) = x + i;
-            sem_post(data->sem_read_b);
-            printf("wrote buffer 1\n");
+            sem_wait(data->sem_write_mem1_1);
+            *(shm_addr + 32 * sizeof(int)) = result;
+            sem_post(data->sem_read_mem1_1);
         }
+
+        // sleep for 1 second
         sleep(1);
+
+        // add 1 to x
+        x = x + 1;
     }
     return NULL;
 }
 
-void* reader_thread(void* arg) {
+void* thread2(void* arg) {
     thread_data_t* data = (thread_data_t*)arg;
     int* shm_addr = data->shm_addr;
     
     for (int i = 0; i < 10; i++) {
+        double input; // grabbed value from buffer
+
+        // read from buffer
         if (i % 2 == 0) {
-            sem_wait(data->sem_read_a);
-            printf("Parent reads buffer 0: %d\n\n", *shm_addr);
-            sem_post(data->sem_write_a);
+            sem_wait(data->sem_read_mem1_0);
+            input = *shm_addr;
+            sem_post(data->sem_write_mem1_0);
         } else {
-            sem_wait(data->sem_read_b);
-            printf("Parent reads buffer 1: %d\n\n", *(shm_addr + 32 * sizeof(int)));
-            sem_post(data->sem_write_b);
+            sem_wait(data->sem_read_mem1_1);
+            input = *(shm_addr + 32 * sizeof(int));
+            sem_post(data->sem_write_mem1_1);
         }
+
+        // calculate +10
+        double result = input + 10;
+
+        // sleep for 1 second
         sleep(1);
+
+        // write to second buffer
+        if (i % 2 == 0) {
+            sem_wait(data->sem_write_mem2_0);
+            *(shm_addr + 64 * sizeof(int)) = result;
+            sem_post(data->sem_read_mem2_0);
+        } else {
+            sem_wait(data->sem_write_mem2_1);
+            *(shm_addr + 96 * sizeof(int)) = result;
+            sem_post(data->sem_read_mem2_1);
+        }
+    }
+    return NULL;
+}
+
+void* thread3(void* arg) {
+    thread_data_t* data = (thread_data_t*)arg;
+    int* shm_addr = data->shm_addr;
+
+    for (int i = 0; i < 10; i++) {
+        double input; // grabbed value from second buffer
+
+        // read from second buffer
+        if (i % 2 == 0) {
+            sem_wait(data->sem_read_mem2_0);
+            input = *(shm_addr + 64 * sizeof(int));
+            sem_post(data->sem_write_mem2_0);
+        } else {
+            sem_wait(data->sem_read_mem2_1);
+            input = *(shm_addr + 96 * sizeof(int));
+            sem_post(data->sem_write_mem2_1);
+        }
+
+        // calculate sqrt
+        double result = sqrt(input);
+
+        // sleep for 1 second
+        sleep(1);
+
+        //print out result
+        printf("Result %d: %f\n", i+1,result);
     }
     return NULL;
 }
